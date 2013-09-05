@@ -6,10 +6,12 @@ import StringIO
 import re
 import subprocess
 
+from os.path import exists as pathexists
 from os.path import realpath
 from os.path import join as pathjoin
 from os import makedirs
 from os import symlink
+from os import remove as rmfile
 
 class Artifact(object):
     def __init__(self, a, g, v):
@@ -56,9 +58,9 @@ def resolveArtifacts(identifiers):
 def resolveJar(artifact):
     return subprocess.check_output(["build-classpath", artifact]).split()[0]
 
-def makeIvyXmlTree(org, module, revision, status="release"):
+def makeIvyXmlTree(org, module, revision, status="release", meta={}):
     ivy_module = ET.Element("ivy-module", {"version":"1.0"})
-    info = ET.SubElement(ivy_module, "info", {"organisation":org, "module":module, "revision":revision, "status":status})
+    info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() + meta.items()))
     info.text = " " # ensure a close tag
     confs = ET.SubElement(ivy_module, "configurations")
     for conf in ["default", "provided", "test"]:
@@ -68,24 +70,31 @@ def makeIvyXmlTree(org, module, revision, status="release"):
 
     return ET.ElementTree(ivy_module)
 
-def writeIvyXml(org, module, revision, status="release", fileobj=None):
+def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}):
     if fileobj is None:
         fileobj = StringIO.StringIO()
     tree = makeIvyXmlTree(org, module, revision, status)
     tree.write(fileobj, xml_declaration=True)
     return fileobj
 
-def ivyXmlAsString(org, module, revision, status):
-    return writeIvyXml(org, module, revision, status).getvalue()
+def ivyXmlAsString(org, module, revision, status, meta={}):
+    return writeIvyXml(org, module, revision, status, meta=meta).getvalue()
 
-def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release"):
+def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release", meta={}):
     repo_dir = realpath(repo_dirname)
     artifact_dir = pathjoin(*[repo_dir] + org.split(".") + [module, revision])
     ivyxml_path = pathjoin(artifact_dir, "ivy.xml")
     artifact_repo_path = pathjoin(artifact_dir, "%s-%s.jar" % (module, revision))
-    makedirs(artifact_dir)
+    
+    if not pathexists(artifact_dir):
+        makedirs(artifact_dir)
+    
     ivyxml_file = open(ivyxml_path, "w")
     writeIvyXml(org, module, revision, status, ivyxml_file)
+    
+    if pathexists(artifact_repo_path):
+        rmfile(artifact_repo_path)
+    
     symlink(artifact_file, artifact_repo_path)
 
 def main():
@@ -94,14 +103,16 @@ def main():
     parser.add_argument("artifact", metavar="ARTIFACT", type=str, help="name of artifact")
     parser.add_argument("repodir", metavar="REPO", type=str, help="location for local repo")
     parser.add_argument("--version", metavar="VERSION", type=str, help="version to advertise this artifact as, overriding Maven metadata")
+    parser.add_argument("--meta", metavar="K=V", type=str, help="extra metadata to store in ivy.xml", action='append')
     args = parser.parse_args()
     
     pom = resolveArtifact(args.group, args.artifact)
     version = (args.version or pom.version)
     jarfile = resolveJar(pom.jarname)
-    print("jarfile is %s" % jarfile)
+    
+    meta = dict([kv.split("=") for kv in (args.meta or [])])
 
-    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version)
+    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta)
 
 if __name__ == "__main__":
     main()
