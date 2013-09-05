@@ -3,12 +3,58 @@
 import xml.etree.ElementTree as ET
 import argparse
 import StringIO
+import re
+import subprocess
+
 from os.path import realpath
 from os.path import join as pathjoin
 from os import makedirs
 from os import symlink
 
+class Artifact(object):
+    def __init__(self, a, g, v):
+        self.artifact = a
+        self.group = g
+        self.version = v
+    
+    @classmethod
+    def fromSubtree(k, t, ns):
+        a = t.find("./{%s}artifactId" % ns).text
+        g = t.find("./{%s}groupId" % ns).text
+        v = t.find("./{%s}version" % ns).text
+        return k(a, g, v)
+    
+    def __repr__(self):
+        return "%s:%s:%s" % (self.group, self.artifact, self.version)
 
+class POM(object):
+    def __init__(self, filename):
+        self.filename = filename
+        self._parsePom()
+    
+    def _parsePom(self):
+        tree = ET.parse(self.filename)
+        project = tree.getroot()
+        namespace = re.match("[{](.*)[}].*", project.tag).groups()[0]
+        self.groupID = project.find("./{%s}groupId" % namespace).text
+        self.artifactID = project.find("./{%s}artifactId" % namespace).text
+        self.version = project.find("./{%s}version" % namespace).text
+        depTrees = project.findall("./{%s}dependencyManagement/{%s}dependencies/{%s}dependency" % (namespace, namespace, namespace))
+        self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees]
+        self.jarname = re.match(".*JPP-(.*).pom", self.filename).groups()[0]
+
+def resolveArtifact(group, artifact, kind="jar"):
+    # XXX: some error checking would be the responsible thing to do here
+    [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
+    return POM(pom)
+
+def resolveArtifacts(identifiers):
+    coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
+    poms =  subprocess.check_output(["xmvn-resolve"] + coords).split()
+    return [POM(pom) for pom in poms]
+
+def resolveJar(artifact):
+    return subprocess.check_output(["build-classpath", artifact]).split()[0]
 
 def makeIvyXmlTree(org, module, revision, status="release"):
     ivy_module = ET.Element("ivy-module", {"version":"1.0"})
@@ -43,13 +89,19 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
     symlink(artifact_file, artifact_repo_path)
 
 def main():
-    parser = argparse.ArgumentParser(description="Place a locally-installed artifact in a custom local Ivy repository")
-    parser.add_argument("artifact_file", metavar="JAR", type=str, help="local JAR file to install")
-    parser.add_argument("repo_dir", metavar="REPO", type=str, help="location for local repo")
-    for val, desc in [("org", "organization"), ("module", "module"), ("revision", "revision")]:
-        parser.add_argument(val, metavar=val.upper(), type=str, help="artifact %s" % desc)
+    parser = argparse.ArgumentParser(description="Place a locally-installed artifact in a custom local Ivy repository; get metadata from Maven")
+    parser.add_argument("group", metavar="GROUP", type=str, help="name of artifact")
+    parser.add_argument("artifact", metavar="ARTIFACT", type=str, help="name of artifact")
+    parser.add_argument("repodir", metavar="REPO", type=str, help="location for local repo")
+    parser.add_argument("--version", metavar="VERSION", type=str, help="version to advertise this artifact as, overriding Maven metadata")
     args = parser.parse_args()
-    placeArtifact(args.artifact_file, args.repo_dir, args.org, args.module, args.revision)
+    
+    pom = resolveArtifact(args.group, args.artifact)
+    version = (args.version or pom.version)
+    jarfile = resolveJar(pom.jarname)
+    print("jarfile is %s" % jarfile)
+
+    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version)
 
 if __name__ == "__main__":
     main()
