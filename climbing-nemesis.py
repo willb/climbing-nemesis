@@ -99,16 +99,23 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
 
 def main():
     parser = argparse.ArgumentParser(description="Place a locally-installed artifact in a custom local Ivy repository; get metadata from Maven")
-    parser.add_argument("group", metavar="GROUP", type=str, help="name of artifact")
+    parser.add_argument("group", metavar="GROUP", type=str, help="name of group")
     parser.add_argument("artifact", metavar="ARTIFACT", type=str, help="name of artifact")
     parser.add_argument("repodir", metavar="REPO", type=str, help="location for local repo")
     parser.add_argument("--version", metavar="VERSION", type=str, help="version to advertise this artifact as, overriding Maven metadata")
     parser.add_argument("--meta", metavar="K=V", type=str, help="extra metadata to store in ivy.xml", action='append')
+    parser.add_argument("--jarfile", metavar="JAR", type=str, help="local jar file (use instead of POM metadata")
+    
     args = parser.parse_args()
     
-    pom = resolveArtifact(args.group, args.artifact)
+    if args.jarfile is None:
+        pom = resolveArtifact(args.group, args.artifact)
+        jarfile = resolveJar(pom.jarname)
+    else:
+        jarfile = args.jarfile
+    
     version = (args.version or pom.version)
-    jarfile = resolveJar(pom.jarname)
+
     
     meta = dict([kv.split("=") for kv in (args.meta or [])])
 
