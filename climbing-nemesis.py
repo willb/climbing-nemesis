@@ -30,6 +30,12 @@ class Artifact(object):
     def __repr__(self):
         return "%s:%s:%s" % (self.group, self.artifact, self.version)
 
+class DummyPOM(object):
+    def __init__(self, groupID=None, artifactID=None, version=None):
+        self.groupID = groupID
+        self.artifactID = artifactID
+        self.version = version
+
 class POM(object):
     def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None):
         self.filename = filename
@@ -68,22 +74,28 @@ def cn_debug(*args):
 def cn_info(*args):
     logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
-def resolveArtifact(group, artifact, kind="jar"):
+def resolveArtifact(group, artifact, pomfile=None, kind="jar"):
     # XXX: some error checking would be the responsible thing to do here
-    [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
-    return POM(pom)
+    if pomfile is None:
+        try:
+            [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
+            return POM(pom)
+        except:
+            return DummyPOM(group, artifact)
+    else:
+        return POM(pomfile)
 
 def resolveArtifacts(identifiers):
     coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
     poms =  subprocess.check_output(["xmvn-resolve"] + coords).split()
     return [POM(pom) for pom in poms]
 
-def resolveJar(artifact):
-    cn_debug("about to call ['build-classpath', %s]" % repr(artifact))
-    return subprocess.check_output(["build-classpath", artifact]).split()[0]
+def resolveJar(group, artifact):
+    [jar] = subprocess.check_output(["xmvn-resolve", "%s:%s:jar:jar" % (group, artifact)]).split()
+    return jar
 
 def makeIvyXmlTree(org, module, revision, status="release", meta={}):
-    ivy_module = ET.Element("ivy-module", {"version":"1.0"})
+    ivy_module = ET.Element("ivy-module", {"version":"2.0", "xmlns:e":"http://ant.apache.org/ivy/extra"})
     info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() + meta.items()))
     info.text = " " # ensure a close tag
     confs = ET.SubElement(ivy_module, "configurations")
@@ -97,7 +109,7 @@ def makeIvyXmlTree(org, module, revision, status="release", meta={}):
 def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}):
     if fileobj is None:
         fileobj = StringIO.StringIO()
-    tree = makeIvyXmlTree(org, module, revision, status)
+    tree = makeIvyXmlTree(org, module, revision, status, meta)
     tree.write(fileobj, xml_declaration=True)
     return fileobj
 
@@ -114,7 +126,7 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
         makedirs(artifact_dir)
     
     ivyxml_file = open(ivyxml_path, "w")
-    writeIvyXml(org, module, revision, status, ivyxml_file)
+    writeIvyXml(org, module, revision, status, ivyxml_file, meta)
     
     if pathexists(artifact_repo_path):
         rmfile(artifact_repo_path)
@@ -129,6 +141,7 @@ def main():
     parser.add_argument("--version", metavar="VERSION", type=str, help="version to advertise this artifact as, overriding Maven metadata")
     parser.add_argument("--meta", metavar="K=V", type=str, help="extra metadata to store in ivy.xml", action='append')
     parser.add_argument("--jarfile", metavar="JAR", type=str, help="local jar file (use instead of POM metadata")
+    parser.add_argument("--pomfile", metavar="POM", type=str, help="local pom file (use instead of xmvn-resolved one")
     parser.add_argument("--log", metavar="LEVEL", type=str, help="logging level")
     
     args = parser.parse_args()
@@ -136,19 +149,19 @@ def main():
     if args.log is not None:
         print args.log
         logging.basicConfig(level=getattr(logging, args.log.upper()))
-
-    pom = resolveArtifact(args.group, args.artifact)
+    
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar")
     
     if args.jarfile is None:
-        jarfile = resolveJar(pom.jarname or args.artifact)
+        jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
     else:
         jarfile = args.jarfile
     
     version = (args.version or pom.version)
-
     
     meta = dict([kv.split("=") for kv in (args.meta or [])])
-
+    cn_debug("meta is %r" % meta)
+    
     placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta)
 
 if __name__ == "__main__":
