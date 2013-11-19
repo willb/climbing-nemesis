@@ -22,29 +22,41 @@ class Artifact(object):
     
     @classmethod
     def fromSubtree(k, t, ns):
-        a = t.find("./{%s}artifactId" % ns).text
-        g = t.find("./{%s}groupId" % ns).text
-        v = t.find("./{%s}version" % ns).text
+        a = t.find("./%sartifactId" % ns).text
+        g = t.find("./%sgroupId" % ns).text
+        v = t.find("./%sversion" % ns).text
         return k(a, g, v)
     
     def __repr__(self):
         return "%s:%s:%s" % (self.group, self.artifact, self.version)
 
 class POM(object):
-    def __init__(self, filename):
+    def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None):
         self.filename = filename
+        self.sGroupID = suppliedGroupID
+        self.sArtifactID = suppliedArtifactID
+        self.logger = logging.getLogger("com.freevariable.climbing-nemesis")
         self._parsePom()
     
     def _parsePom(self):
         tree = ET.parse(self.filename)
         project = tree.getroot()
-        logging.getLogger("com.freevariable.climbing-nemesis").debug("parsing POM %s", self.filename)
-        logging.getLogger("com.freevariable.climbing-nemesis").debug("project tag is '%s'", project.tag)
+        self.logger.info("parsing POM %s", self.filename)
+        self.logger.debug("project tag is '%s'", project.tag)
         tagmatch = re.match("[{](.*)[}].*", project.tag)
         namespace = tagmatch and "{%s}" % tagmatch.groups()[0] or ""
-        self.groupID = project.find("./%sgroupId" % namespace).text
+        self.logger.debug("looking for '%s'", ("./%sgroupId" % namespace))
+        groupIDtag = project.find("./%sgroupId" % namespace) 
+        if groupIDtag is None:
+            groupIDtag = project.find("./%sparent/%sgroupId" % (namespace,namespace))
+        
+        versiontag = project.find("./%sversion" % namespace)
+        if versiontag is None:
+            versiontag = project.find("./%sparent/%sversion" % (namespace,namespace))
+        self.logger.debug("group ID tag is '%s'", groupIDtag)
+        self.groupID = groupIDtag.text
         self.artifactID = project.find("./%sartifactId" % namespace).text
-        self.version = project.find("./%sversion" % namespace).text
+        self.version = versiontag.text
         depTrees = project.findall("./%sdependencyManagement/%sdependencies/%sdependency" % (namespace, namespace, namespace))
         self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees]
         self.jarname = re.match(".*JPP-(.*).pom", self.filename).groups()[0]
