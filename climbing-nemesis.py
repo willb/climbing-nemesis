@@ -59,7 +59,14 @@ class POM(object):
         self.version = versiontag.text
         depTrees = project.findall("./%sdependencyManagement/%sdependencies/%sdependency" % (namespace, namespace, namespace))
         self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees]
-        self.jarname = re.match(".*JPP-(.*).pom", self.filename).groups()[0]
+        jarmatch = re.match(".*JPP-(.*).pom", self.filename)
+        self.jarname = (jarmatch and jarmatch.groups()[0] or None)
+
+def cn_debug(*args):
+    logging.getLogger("com.freevariable.climbing-nemesis").debug(*args)
+
+def cn_info(*args):
+    logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
 def resolveArtifact(group, artifact, kind="jar"):
     # XXX: some error checking would be the responsible thing to do here
@@ -72,6 +79,7 @@ def resolveArtifacts(identifiers):
     return [POM(pom) for pom in poms]
 
 def resolveJar(artifact):
+    cn_debug("about to call ['build-classpath', %s]" % repr(artifact))
     return subprocess.check_output(["build-classpath", artifact]).split()[0]
 
 def makeIvyXmlTree(org, module, revision, status="release", meta={}):
@@ -128,10 +136,11 @@ def main():
     if args.log is not None:
         print args.log
         logging.basicConfig(level=getattr(logging, args.log.upper()))
+
+    pom = resolveArtifact(args.group, args.artifact)
     
     if args.jarfile is None:
-        pom = resolveArtifact(args.group, args.artifact)
-        jarfile = resolveJar(pom.jarname)
+        jarfile = resolveJar(pom.jarname or args.artifact)
     else:
         jarfile = args.jarfile
     
