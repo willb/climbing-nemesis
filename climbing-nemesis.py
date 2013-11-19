@@ -5,6 +5,7 @@ import argparse
 import StringIO
 import re
 import subprocess
+import logging
 
 from os.path import exists as pathexists
 from os.path import realpath
@@ -37,11 +38,14 @@ class POM(object):
     def _parsePom(self):
         tree = ET.parse(self.filename)
         project = tree.getroot()
-        namespace = re.match("[{](.*)[}].*", project.tag).groups()[0]
-        self.groupID = project.find("./{%s}groupId" % namespace).text
-        self.artifactID = project.find("./{%s}artifactId" % namespace).text
-        self.version = project.find("./{%s}version" % namespace).text
-        depTrees = project.findall("./{%s}dependencyManagement/{%s}dependencies/{%s}dependency" % (namespace, namespace, namespace))
+        logging.getLogger("com.freevariable.climbing-nemesis").debug("parsing POM %s", self.filename)
+        logging.getLogger("com.freevariable.climbing-nemesis").debug("project tag is '%s'", project.tag)
+        tagmatch = re.match("[{](.*)[}].*", project.tag)
+        namespace = tagmatch and "{%s}" % tagmatch.groups()[0] or ""
+        self.groupID = project.find("./%sgroupId" % namespace).text
+        self.artifactID = project.find("./%sartifactId" % namespace).text
+        self.version = project.find("./%sversion" % namespace).text
+        depTrees = project.findall("./%sdependencyManagement/%sdependencies/%sdependency" % (namespace, namespace, namespace))
         self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees]
         self.jarname = re.match(".*JPP-(.*).pom", self.filename).groups()[0]
 
@@ -105,8 +109,13 @@ def main():
     parser.add_argument("--version", metavar="VERSION", type=str, help="version to advertise this artifact as, overriding Maven metadata")
     parser.add_argument("--meta", metavar="K=V", type=str, help="extra metadata to store in ivy.xml", action='append')
     parser.add_argument("--jarfile", metavar="JAR", type=str, help="local jar file (use instead of POM metadata")
+    parser.add_argument("--log", metavar="LEVEL", type=str, help="logging level")
     
     args = parser.parse_args()
+    
+    if args.log is not None:
+        print args.log
+        logging.basicConfig(level=getattr(logging, args.log.upper()))
     
     if args.jarfile is None:
         pom = resolveArtifact(args.group, args.artifact)
