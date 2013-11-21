@@ -174,7 +174,7 @@ def main():
     meta = dict([kv.split("=") for kv in (args.meta or [])])
     cn_debug("meta is %r" % meta)
     
-    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile)
+    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile, scala=args.scala)
 
 if __name__ == "__main__":
     main()
