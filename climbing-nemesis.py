@@ -26,9 +26,7 @@ class Artifact(object):
         a = t.find("./%sartifactId" % ns).text
         g = t.find("./%sgroupId" % ns).text
         v = t.find("./%sversion" % ns).text
-        result = k(a, g, v)
-        print(result)
-        return result
+        return k(a, g, v)
     
     def __repr__(self):
         return "%s:%s:%s" % (self.group, self.artifact, self.version)
@@ -162,7 +160,6 @@ def main():
     args = parser.parse_args()
     
     if args.log is not None:
-        print args.log
         logging.basicConfig(level=getattr(logging, args.log.upper()))
     
     pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar")
