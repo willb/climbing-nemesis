@@ -28,6 +28,15 @@ class Artifact(object):
         v = t.find("./%sversion" % ns).text
         return k(a, g, v)
     
+    def contains(self, substrings):
+        for s in substrings:
+            if s in self.artifact or s in self.group:
+                print("ignoring %r because it contains %s" % (self, s))
+                return True
+        if len(substrings) > 0:
+            print("not ignoring %r; looked for %r" % (self, substrings))
+        return False
+    
     def __repr__(self):
         return "%s:%s:%s" % (self.group, self.artifact, self.version)
 
@@ -39,13 +48,15 @@ class DummyPOM(object):
         self.deps = []
 
 class POM(object):
-    def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None):
+    def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None, ignored_deps=[], override=None):
         self.filename = filename
         self.sGroupID = suppliedGroupID
         self.sArtifactID = suppliedArtifactID
         self.logger = logging.getLogger("com.freevariable.climbing-nemesis")
         self.deps = []
+        self.ignored_deps = ignored_deps
         self._parsePom()
+        self.claimedGroup, self.claimedArtifact  = override is not None and override or (self.groupID, self.artifactID)
     
     def _parsePom(self):
         tree = ET.parse(self.filename)
@@ -67,7 +78,8 @@ class POM(object):
         self.artifactID = project.find("./%sartifactId" % namespace).text
         self.version = versiontag.text
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
-        self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if len(depTree.findall("./optional")) == 0]
+        alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if len(depTree.findall("./optional")) == 0]
+        self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
         self.jarname = (jarmatch and jarmatch.groups()[0] or None)
 
@@ -77,12 +89,12 @@ def cn_debug(*args):
 def cn_info(*args):
     logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
-def resolveArtifact(group, artifact, pomfile=None, kind="jar"):
+def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], override=None):
     # XXX: some error checking would be the responsible thing to do here
     if pomfile is None:
         try:
             [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
-            return POM(pom)
+            return POM(pom, ignored_deps=ignored_deps, override=override)
         except:
             return DummyPOM(group, artifact)
     else:
@@ -123,9 +135,11 @@ def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}, 
 def ivyXmlAsString(org, module, revision, status, meta={}, deps=[]):
     return writeIvyXml(org, module, revision, status, meta=meta, deps=deps).getvalue()
 
-def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release", meta={}, deps=[], supplied_ivy_file=None, scala=None):
+def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release", meta={}, deps=[], supplied_ivy_file=None, scala=None, override=None):
     if scala is not None:
         module = module + "_%s" % scala
+    if override is not None:
+        org, module = override
     repo_dir = realpath(repo_dirname)
     artifact_dir = pathjoin(*[repo_dir] + [org] + [module, revision])
     ivyxml_path = pathjoin(artifact_dir, "ivy.xml")
@@ -157,12 +171,16 @@ def main():
     parser.add_argument("--log", metavar="LEVEL", type=str, help="logging level")
     parser.add_argument("--ivyfile", metavar="IVY", type=str, help="supplied Ivy file (use instead of POM metadata)")
     parser.add_argument("--scala", metavar="VERSION", type=str, help="encode given scala version in artifact name")
+    parser.add_argument("--ignore", metavar="STR", type=str, help="ignore dependencies whose artifact or group contains str", action='append')
+    parser.add_argument("--override", metavar="ORG:NAME", type=str, help="override organization and/or artifact name")
     args = parser.parse_args()
     
     if args.log is not None:
         logging.basicConfig(level=getattr(logging, args.log.upper()))
     
-    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar")
+    override = args.override and args.override.split(":") or None
+    
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=override)
     
     if args.jarfile is None:
         jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
@@ -174,7 +192,7 @@ def main():
     meta = dict([kv.split("=") for kv in (args.meta or [])])
     cn_debug("meta is %r" % meta)
     
-    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile, scala=args.scala)
+    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile, scala=args.scala, override=override)
 
 if __name__ == "__main__":
     main()
