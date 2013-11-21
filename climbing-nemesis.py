@@ -151,7 +151,6 @@ def main():
     parser.add_argument("--jarfile", metavar="JAR", type=str, help="local jar file (use instead of POM metadata")
     parser.add_argument("--pomfile", metavar="POM", type=str, help="local pom file (use instead of xmvn-resolved one")
     parser.add_argument("--log", metavar="LEVEL", type=str, help="logging level")
-    # parser.add_argument("--depmunge", metavar="OLD=NEW", type=str, help="replace dependency OLD with NEW")
     
     args = parser.parse_args()
     
@@ -171,9 +170,6 @@ def main():
     meta = dict([kv.split("=") for kv in (args.meta or [])])
     cn_debug("meta is %r" % meta)
     
-    # deps=pom.deps
-    # if args.depmunge is not None:
-    #    pass
     placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps)
 
 if __name__ == "__main__":
