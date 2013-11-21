@@ -68,7 +68,7 @@ class POM(object):
         self.artifactID = project.find("./%sartifactId" % namespace).text
         self.version = versiontag.text
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
-        self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees]
+        self.deps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if len(depTree.findall("./optional")) == 0]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
         self.jarname = (jarmatch and jarmatch.groups()[0] or None)
 
@@ -151,6 +151,7 @@ def main():
     parser.add_argument("--jarfile", metavar="JAR", type=str, help="local jar file (use instead of POM metadata")
     parser.add_argument("--pomfile", metavar="POM", type=str, help="local pom file (use instead of xmvn-resolved one")
     parser.add_argument("--log", metavar="LEVEL", type=str, help="logging level")
+    # parser.add_argument("--depmunge", metavar="OLD=NEW", type=str, help="replace dependency OLD with NEW")
     
     args = parser.parse_args()
     
@@ -170,6 +171,9 @@ def main():
     meta = dict([kv.split("=") for kv in (args.meta or [])])
     cn_debug("meta is %r" % meta)
     
+    # deps=pom.deps
+    # if args.depmunge is not None:
+    #    pass
     placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps)
 
 if __name__ == "__main__":
