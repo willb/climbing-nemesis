@@ -79,6 +79,7 @@ class POM(object):
         self.version = versiontag.text
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
         alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if len(depTree.findall("./optional")) == 0]
+        alldeps = [dep for dep in alldeps if not (dep.group == self.groupID and dep.artifact == self.artifactID)]
         self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
         self.jarname = (jarmatch and jarmatch.groups()[0] or None)
@@ -98,7 +99,7 @@ def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], 
         except:
             return DummyPOM(group, artifact)
     else:
-        return POM(pomfile)
+        return POM(pomfile, ignored_deps=ignored_deps, override=override)
 
 def resolveArtifacts(identifiers):
     coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
