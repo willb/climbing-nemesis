@@ -58,10 +58,12 @@ class POM(object):
         self._parsePom()
         self.claimedGroup, self.claimedArtifact  = override is not None and override or (self.groupID, self.artifactID)
     
-    def _interestingDep(dt):
+    def _interestingDep(dt, namespace):
         if len(dt.findall("./optional")) != 0:
+            print "ignoring optional dep %r" % Artifact.fromSubtree(dt, namespace)
             return False
         if [e for e in dt.findall("./scope") if e.text == "test"] != []:
+            print "ignoring test dep %r" % Artifact.fromSubtree(dt, namespace)
             return False
         return True
     
@@ -85,7 +87,7 @@ class POM(object):
         self.artifactID = project.find("./%sartifactId" % namespace).text
         self.version = versiontag.text
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
-        alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if _interestingDep(dt)]
+        alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if _interestingDep(depTree, namespace)]
         alldeps = [dep for dep in alldeps if not (dep.group == self.groupID and dep.artifact == self.artifactID)]
         self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
