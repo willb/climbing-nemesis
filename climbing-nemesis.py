@@ -47,6 +47,15 @@ class DummyPOM(object):
         self.version = version
         self.deps = []
 
+def interestingDep(dt, namespace):
+    if len(dt.findall("./%soptional" % namespace)) != 0:
+        print "ignoring optional dep %r" % Artifact.fromSubtree(dt, namespace)
+        return False
+    if [e for e in dt.findall("./%sscope" % namespace) if e.text == "test"] != []:
+        print "ignoring test dep %r" % Artifact.fromSubtree(dt, namespace)
+        return False
+    return True
+
 class POM(object):
     def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None, ignored_deps=[], override=None):
         self.filename = filename
@@ -57,15 +66,6 @@ class POM(object):
         self.ignored_deps = ignored_deps
         self._parsePom()
         self.claimedGroup, self.claimedArtifact  = override is not None and override or (self.groupID, self.artifactID)
-    
-    def _interestingDep(dt, namespace):
-        if len(dt.findall("./optional")) != 0:
-            print "ignoring optional dep %r" % Artifact.fromSubtree(dt, namespace)
-            return False
-        if [e for e in dt.findall("./scope") if e.text == "test"] != []:
-            print "ignoring test dep %r" % Artifact.fromSubtree(dt, namespace)
-            return False
-        return True
     
     def _parsePom(self):
         tree = ET.parse(self.filename)
@@ -87,7 +87,7 @@ class POM(object):
         self.artifactID = project.find("./%sartifactId" % namespace).text
         self.version = versiontag.text
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
-        alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if _interestingDep(depTree, namespace)]
+        alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if interestingDep(depTree, namespace)]
         alldeps = [dep for dep in alldeps if not (dep.group == self.groupID and dep.artifact == self.artifactID)]
         self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
