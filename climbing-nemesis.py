@@ -145,15 +145,18 @@ def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}, 
 def ivyXmlAsString(org, module, revision, status, meta={}, deps=[]):
     return writeIvyXml(org, module, revision, status, meta=meta, deps=deps).getvalue()
 
-def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release", meta={}, deps=[], supplied_ivy_file=None, scala=None, override=None):
+def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="release", meta={}, deps=[], supplied_ivy_file=None, scala=None, override=None, override_dir_only=False):
     if scala is not None:
         module = module + "_%s" % scala
+    jarmodule = module
     if override is not None:
         org, module = override
+        if not override_dir_only:
+            jarmodule = module
     repo_dir = realpath(repo_dirname)
     artifact_dir = pathjoin(*[repo_dir] + [org] + [module, revision])
     ivyxml_path = pathjoin(artifact_dir, "ivy.xml")
-    artifact_repo_path = pathjoin(artifact_dir, "%s-%s.jar" % (module, revision))
+    artifact_repo_path = pathjoin(artifact_dir, "%s-%s.jar" % (jarmodule, revision))
     
     if not pathexists(artifact_dir):
         makedirs(artifact_dir)
@@ -183,6 +186,7 @@ def main():
     parser.add_argument("--scala", metavar="VERSION", type=str, help="encode given scala version in artifact name")
     parser.add_argument("--ignore", metavar="STR", type=str, help="ignore dependencies whose artifact or group contains str", action='append')
     parser.add_argument("--override", metavar="ORG:NAME", type=str, help="override organization and/or artifact name")
+    parser.add_argument("--override-dir-only", action='store_true', help="override organization and/or artifact name")
     args = parser.parse_args()
     
     if args.log is not None:
@@ -190,7 +194,7 @@ def main():
     
     override = args.override and args.override.split(":") or None
     
-    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=override)
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None))
     
     if args.jarfile is None:
         jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
@@ -202,7 +206,7 @@ def main():
     meta = dict([kv.split("=") for kv in (args.meta or [])])
     cn_debug("meta is %r" % meta)
     
-    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile, scala=args.scala, override=override)
+    placeArtifact(jarfile, args.repodir, pom.groupID, pom.artifactID, version, meta=meta, deps=pom.deps, supplied_ivy_file=args.ivyfile, scala=args.scala, override=override, override_dir_only=args.override_dir_only)
 
 if __name__ == "__main__":
     main()
