@@ -22,6 +22,11 @@ class Artifact(object):
         self.version = v
     
     @classmethod
+    def fromCoords(k, coords):
+        g,a,v = coords.split(":")
+        return k(a, g, v)
+    
+    @classmethod
     def fromSubtree(k, t, ns):
         a = t.find("./%sartifactId" % ns).text
         g = t.find("./%sgroupId" % ns).text
@@ -31,10 +36,10 @@ class Artifact(object):
     def contains(self, substrings):
         for s in substrings:
             if s in self.artifact or s in self.group:
-                print("ignoring %r because it contains %s" % (self, s))
+                cn_debug("ignoring %r because it contains %s" % (self, s))
                 return True
         if len(substrings) > 0:
-            print("not ignoring %r; looked for %r" % (self, substrings))
+            cn_debug("not ignoring %r; looked for %r" % (self, substrings))
         return False
     
     def __repr__(self):
@@ -49,21 +54,23 @@ class DummyPOM(object):
 
 def interestingDep(dt, namespace):
     if len(dt.findall("./%soptional" % namespace)) != 0:
-        print "ignoring optional dep %r" % Artifact.fromSubtree(dt, namespace)
+        cn_debug("ignoring optional dep %r" % Artifact.fromSubtree(dt, namespace))
         return False
     if [e for e in dt.findall("./%sscope" % namespace) if e.text == "test"] != []:
-        print "ignoring test dep %r" % Artifact.fromSubtree(dt, namespace)
+        cn_debug("ignoring test dep %r" % Artifact.fromSubtree(dt, namespace))
         return False
     return True
 
 class POM(object):
-    def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None, ignored_deps=[], override=None):
+    def __init__(self, filename, suppliedGroupID=None, suppliedArtifactID=None, ignored_deps=[], override=None, extra_deps=[]):
         self.filename = filename
         self.sGroupID = suppliedGroupID
         self.sArtifactID = suppliedArtifactID
         self.logger = logging.getLogger("com.freevariable.climbing-nemesis")
         self.deps = []
         self.ignored_deps = ignored_deps
+        self.extra_deps = extra_deps
+        cn_debug("POM:  extra_deps is %r" % extra_deps)
         self._parsePom()
         self.claimedGroup, self.claimedArtifact  = override is not None and override or (self.groupID, self.artifactID)
     
@@ -89,7 +96,7 @@ class POM(object):
         depTrees = project.findall(".//%sdependencies/%sdependency" % (namespace, namespace))
         alldeps = [Artifact.fromSubtree(depTree, namespace) for depTree in depTrees if interestingDep(depTree, namespace)]
         alldeps = [dep for dep in alldeps if not (dep.group == self.groupID and dep.artifact == self.artifactID)]
-        self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)]
+        self.deps = [dep for dep in alldeps if not dep.contains(self.ignored_deps)] + [Artifact.fromCoords(xtra) for xtra in self.extra_deps]
         jarmatch = re.match(".*JPP-(.*).pom", self.filename)
         self.jarname = (jarmatch and jarmatch.groups()[0] or None)
 
@@ -99,16 +106,17 @@ def cn_debug(*args):
 def cn_info(*args):
     logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
-def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], override=None):
+def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], override=None, extra_deps=[]):
     # XXX: some error checking would be the responsible thing to do here
+    cn_debug("rA:  extra_deps is %r" % extra_deps)
     if pomfile is None:
         try:
             [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
-            return POM(pom, ignored_deps=ignored_deps, override=override)
+            return POM(pom, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
         except:
             return DummyPOM(group, artifact)
     else:
-        return POM(pomfile, ignored_deps=ignored_deps, override=override)
+        return POM(pomfile, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
 
 def resolveArtifacts(identifiers):
     coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
@@ -187,14 +195,17 @@ def main():
     parser.add_argument("--ignore", metavar="STR", type=str, help="ignore dependencies whose artifact or group contains str", action='append')
     parser.add_argument("--override", metavar="ORG:NAME", type=str, help="override organization and/or artifact name")
     parser.add_argument("--override-dir-only", action='store_true', help="override organization and/or artifact name")
+    parser.add_argument("--extra-dep", metavar="ORG:NAME:VERSION", action='append', help="add the given dependencya")
     args = parser.parse_args()
     
     if args.log is not None:
         logging.basicConfig(level=getattr(logging, args.log.upper()))
     
     override = args.override and args.override.split(":") or None
+    cn_debug("cl: args.extra_dep is %r" % args.extra_dep)
+    extra_deps = args.extra_dep is not None and args.extra_dep or []
     
-    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None))
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None), extra_deps=extra_deps)
     
     if args.jarfile is None:
         jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
