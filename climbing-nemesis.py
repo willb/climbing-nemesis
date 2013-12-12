@@ -111,7 +111,10 @@ def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], 
     cn_debug("rA:  extra_deps is %r" % extra_deps)
     if pomfile is None:
         try:
-            [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
+            if getFedoraRelease() > 19:
+                [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:pom:%s" % (group, artifact, kind)]).split()
+            else:
+                [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
             return POM(pom, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
         except:
             return DummyPOM(group, artifact)
@@ -179,6 +182,10 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
         rmfile(artifact_repo_path)
     
     symlink(artifact_file, artifact_repo_path)
+
+def getFedoraRelease():
+    cmd = "rpm -q --qf %{version} fedora-release"
+    return int(subprocess.check_output(cmd.split()))
 
 def main():
     parser = argparse.ArgumentParser(description="Place a locally-installed artifact in a custom local Ivy repository; get metadata from Maven")
