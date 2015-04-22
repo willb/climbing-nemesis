@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright 2013, 2014 Red Hat, Inc., and William C. Benton
 #
@@ -16,11 +16,11 @@
 
 import xml.etree.ElementTree as ET
 import argparse
-import StringIO
 import re
 import subprocess
 import logging
 
+from io import StringIO
 from os.path import exists as pathexists
 from os.path import realpath
 from os.path import join as pathjoin
@@ -138,7 +138,7 @@ def resolveJar(group, artifact):
 
 def makeIvyXmlTree(org, module, revision, status="release", meta={}, deps=[]):
     ivy_module = ET.Element("ivy-module", {"version":"1.0", "xmlns:e":"http://ant.apache.org/ivy/extra"})
-    info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() + meta.items()))
+    info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() | meta.items()))
     info.text = " " # ensure a close tag
     confs = ET.SubElement(ivy_module, "configurations")
     for conf in ["default", "provided", "test"]:
@@ -154,7 +154,7 @@ def makeIvyXmlTree(org, module, revision, status="release", meta={}, deps=[]):
 def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}, deps=[]):
     # XXX: handle deps!
     if fileobj is None:
-        fileobj = StringIO.StringIO()
+        fileobj = StringIO()
     tree = makeIvyXmlTree(org, module, revision, status, meta=meta, deps=deps)
     tree.write(fileobj, xml_declaration=True)
     return fileobj
@@ -178,7 +178,7 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
     if not pathexists(artifact_dir):
         makedirs(artifact_dir)
     
-    ivyxml_file = open(ivyxml_path, "w")
+    ivyxml_file = open(ivyxml_path, "wb")
     if supplied_ivy_file is None:
         writeIvyXml(org, module, revision, status, ivyxml_file, meta=meta, deps=deps)
     else:
