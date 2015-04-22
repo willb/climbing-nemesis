@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright 2013, 2014 Red Hat, Inc., and William C. Benton
 #
@@ -16,11 +16,10 @@
 
 import xml.etree.ElementTree as ET
 import argparse
-import StringIO
 import re
-import subprocess
 import logging
 
+from io import StringIO
 from os.path import exists as pathexists
 from os.path import realpath
 from os.path import join as pathjoin
@@ -28,6 +27,7 @@ from os import makedirs
 from os import symlink
 from os import remove as rmfile
 from shutil import copyfile
+from javapackages.xmvn.xmvn_resolve import (XMvnResolve, ResolutionRequest)
 
 class Artifact(object):
     def __init__(self, a, g, v):
@@ -120,33 +120,25 @@ def cn_debug(*args):
 def cn_info(*args):
     logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
-def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], override=None, extra_deps=[]):
+def resolveArtifact(group, artifact, pomfile=None, ignored_deps=[], override=None, extra_deps=[]):
     # XXX: some error checking would be the responsible thing to do here
     cn_debug("rA:  extra_deps is %r" % extra_deps)
     if pomfile is None:
-        try:
-            if getFedoraRelease() > 19:
-                [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:pom:%s" % (group, artifact, kind)]).split()
-            else:
-                [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:%s" % (group, artifact, kind)]).split()
-            return POM(pom, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
-        except:
+        result = XMvnResolve.process_raw_request([ResolutionRequest(group, artifact, extension="pom")])[0]
+        if result:
+            return POM(result.artifactPath, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
+        else:
             return DummyPOM(group, artifact)
     else:
         return POM(pomfile, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
 
-def resolveArtifacts(identifiers):
-    coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
-    poms =  subprocess.check_output(["xmvn-resolve"] + coords).split()
-    return [POM(pom) for pom in poms]
-
 def resolveJar(group, artifact):
-    [jar] = subprocess.check_output(["xmvn-resolve", "%s:%s:jar:jar" % (group, artifact)]).split()
-    return jar
+    result = XMvnResolve.process_raw_request([ResolutionRequest(group, artifact)])[0]
+    return result.artifactPath if result else None
 
 def makeIvyXmlTree(org, module, revision, status="release", meta={}, deps=[]):
     ivy_module = ET.Element("ivy-module", {"version":"1.0", "xmlns:e":"http://ant.apache.org/ivy/extra"})
-    info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() + meta.items()))
+    info = ET.SubElement(ivy_module, "info", dict({"organisation":org, "module":module, "revision":revision, "status":status}.items() | meta.items()))
     info.text = " " # ensure a close tag
     confs = ET.SubElement(ivy_module, "configurations")
     for conf in ["default", "provided", "test"]:
@@ -162,7 +154,7 @@ def makeIvyXmlTree(org, module, revision, status="release", meta={}, deps=[]):
 def writeIvyXml(org, module, revision, status="release", fileobj=None, meta={}, deps=[]):
     # XXX: handle deps!
     if fileobj is None:
-        fileobj = StringIO.StringIO()
+        fileobj = StringIO()
     tree = makeIvyXmlTree(org, module, revision, status, meta=meta, deps=deps)
     tree.write(fileobj, xml_declaration=True)
     return fileobj
@@ -186,7 +178,7 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
     if not pathexists(artifact_dir):
         makedirs(artifact_dir)
     
-    ivyxml_file = open(ivyxml_path, "w")
+    ivyxml_file = open(ivyxml_path, "wb")
     if supplied_ivy_file is None:
         writeIvyXml(org, module, revision, status, ivyxml_file, meta=meta, deps=deps)
     else:
@@ -196,10 +188,6 @@ def placeArtifact(artifact_file, repo_dirname, org, module, revision, status="re
         rmfile(artifact_repo_path)
     
     symlink(artifact_file, artifact_repo_path)
-
-def getFedoraRelease():
-    cmd = "rpm -q --qf %{version} fedora-release"
-    return int(subprocess.check_output(cmd.split()))
 
 def main():
     parser = argparse.ArgumentParser(description="Place a locally-installed artifact in a custom local Ivy repository; get metadata from Maven")
@@ -226,7 +214,7 @@ def main():
     cn_debug("cl: args.extra_dep is %r" % args.extra_dep)
     extra_deps = args.extra_dep is not None and args.extra_dep or []
     
-    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None), extra_deps=extra_deps)
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None), extra_deps=extra_deps)
     
     if args.jarfile is None:
         jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
