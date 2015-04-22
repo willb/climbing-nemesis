@@ -17,7 +17,6 @@
 import xml.etree.ElementTree as ET
 import argparse
 import re
-import subprocess
 import logging
 
 from io import StringIO
@@ -28,6 +27,7 @@ from os import makedirs
 from os import symlink
 from os import remove as rmfile
 from shutil import copyfile
+from javapackages.xmvn.xmvn_resolve import (XMvnResolve, ResolutionRequest)
 
 class Artifact(object):
     def __init__(self, a, g, v):
@@ -120,21 +120,21 @@ def cn_debug(*args):
 def cn_info(*args):
     logging.getLogger("com.freevariable.climbing-nemesis").info(*args)
 
-def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], override=None, extra_deps=[]):
+def resolveArtifact(group, artifact, pomfile=None, ignored_deps=[], override=None, extra_deps=[]):
     # XXX: some error checking would be the responsible thing to do here
     cn_debug("rA:  extra_deps is %r" % extra_deps)
     if pomfile is None:
-        try:
-            [pom] = subprocess.check_output(["xmvn-resolve", "%s:%s:pom:%s" % (group, artifact, kind)]).split()
-            return POM(pom, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
-        except:
+        result = XMvnResolve.process_raw_request([ResolutionRequest(group, artifact, extension="pom")])[0]
+        if result:
+            return POM(result.artifactPath, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
+        else:
             return DummyPOM(group, artifact)
     else:
         return POM(pomfile, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
 
 def resolveJar(group, artifact):
-    [jar] = subprocess.check_output(["xmvn-resolve", "%s:%s:jar:jar" % (group, artifact)]).split()
-    return jar
+    result = XMvnResolve.process_raw_request([ResolutionRequest(group, artifact)])[0]
+    return result.artifactPath if result else None
 
 def makeIvyXmlTree(org, module, revision, status="release", meta={}, deps=[]):
     ivy_module = ET.Element("ivy-module", {"version":"1.0", "xmlns:e":"http://ant.apache.org/ivy/extra"})
@@ -214,7 +214,7 @@ def main():
     cn_debug("cl: args.extra_dep is %r" % args.extra_dep)
     extra_deps = args.extra_dep is not None and args.extra_dep or []
     
-    pom = resolveArtifact(args.group, args.artifact, args.pomfile, "jar", ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None), extra_deps=extra_deps)
+    pom = resolveArtifact(args.group, args.artifact, args.pomfile, ignored_deps=(args.ignore or []), override=((not args.override_dir_only) and override or None), extra_deps=extra_deps)
     
     if args.jarfile is None:
         jarfile = resolveJar(pom.groupID or args.group, pom.artifactID or args.artifact)
