@@ -132,11 +132,6 @@ def resolveArtifact(group, artifact, pomfile=None, kind="jar", ignored_deps=[], 
     else:
         return POM(pomfile, ignored_deps=ignored_deps, override=override, extra_deps=extra_deps)
 
-def resolveArtifacts(identifiers):
-    coords = ["%s:%s:jar" % (group, artifact) for (group, artifact) in identifiers]
-    poms =  subprocess.check_output(["xmvn-resolve"] + coords).split()
-    return [POM(pom) for pom in poms]
-
 def resolveJar(group, artifact):
     [jar] = subprocess.check_output(["xmvn-resolve", "%s:%s:jar:jar" % (group, artifact)]).split()
     return jar
